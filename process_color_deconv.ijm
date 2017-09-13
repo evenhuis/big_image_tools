@@ -2,15 +2,14 @@ var slash=File.separator;  // Stupid windows!
 
 var nred=4, ncol=4;
 
-var othresh=190;
-var	gthresh=190;
-var	bthresh=190;
+var othresh=190, ofact=0.9;
+var	gthresh=190, gfact=0.9;
+var	bthresh=190, bfact=0.9;
 
 var sizeX0, sizeY0;
 var dx_i, dy_i;
 var dxr_i, dyr_i,dxr,dyr;
 var  alphabet=newArray("A","B","C","D","E","F","G","H","I","J");
-
 
 
 //quantify_whole_image();
@@ -33,7 +32,7 @@ function get_white_balance_factors(id){
 	roiManager("reset");
 	
 	outline_section(id_grey,othresh,1.00);
-
+	
 	
 	selectImage(id);
 	run("Select All");
@@ -43,13 +42,20 @@ function get_white_balance_factors(id){
 	cfactors=newArray(3);
 	for(i=1;i<=3;i++){
 		setSlice(i);
-		getHistogram(values, counts, 256); counts[0]=0;
+		getHistogram(values, counts, 256); 
+		counts[0]=0;
 		maxLocs= Array.findMaxima(counts, 20);
-		cfactors[i-1]=230./(maxLocs[0]+0.00);
+		cfactors[i-1]=maxLocs[0];
 	}
+	cnorm=(cfactors[0]+cfactors[1]+cfactors[2])/3.;
+	cfactors[0]=cnorm/cfactors[0];
+	cfactors[1]=cnorm/cfactors[1];
+	cfactors[2]=cnorm/cfactors[2];
+
 	selectImage(id_rgb);
 	close();
 	if( ! batch_on){setBatchMode(false);}
+
 	return cfactors;
 }
 
@@ -121,9 +127,9 @@ function quantify_whole_image(){
 	roiManager("reset");
 	//setBatchMode(true);
 	
-	outline_section(id_grey,othresh*0.95,0.95);
-	outline_section(id_grey,othresh,1.00);
-	outline_section(id_grey,othresh*1.05,1.05);
+	outline_section(id_grey,othresh*0.975,0.975);
+	outline_section(id_grey,othresh,1.000);
+	outline_section(id_grey,othresh*1.025,1.025);
 	
 
 	run("Clear Results");
@@ -183,13 +189,27 @@ function quantify_sub_images(){
 	path     = tmp[2];
 	name     = tmp[3];
 
-
+	roiManager("reset")
+	run("Select All");
+	roiManager("add");
+	roiManager("reset")
 	setBatchMode(true);
 
 	// get the outline mask
+	selectImage(id_red);
 	run("Select All");
 	run("Duplicate...","grey"); id_grey=getImageID();
 	run("8-bit");
+
+	// set the othresh
+	getHistogram(values, counts, 256);
+	for(k=0;k<100;k++){
+		counts[k]=0;
+	}
+	maxlocs=Array.findMaxima(counts,10);
+	othresh=ofact*maxlocs[0];
+	gthresh=gfact*maxlocs[0];
+	bthresh=bfact*maxlocs[0];
 	
 	selectImage(id_grey);
 	run("Select All"); run("Copy");
@@ -213,9 +233,9 @@ function quantify_sub_images(){
 	
 	roiManager("reset");
 	//setBatchMode(true);
-	outline_section(id_grey,othresh*1.00,1.00);
-	outline_section(id_grey,othresh*0.95,0.95);
-	outline_section(id_grey,othresh*1.05,1.05);
+	outline_section(id_grey,othresh*1.000,1.000);
+	outline_section(id_grey,othresh*0.975,0.975);
+	outline_section(id_grey,othresh*1.025,1.025);
 
 
 	setup_results();
@@ -223,12 +243,12 @@ function quantify_sub_images(){
 	setResult("Total_mid",ncol*ncol+2, floor(othresh));
 	setResult("Total_hi" ,ncol*ncol+2, floor(othresh*1.05));
 	
-	setResult("Grey_fill_lo" ,ncol*ncol+2, floor(255*perturb_thresh( gthresh/255., -0.05 )));
-	setResult("Grey_fill_mid",ncol*ncol+2, floor(255*perturb_thresh( gthresh/255.,  0.00 )));
-	setResult("Grey_fill_hi" ,ncol*ncol+2, floor(255*perturb_thresh( gthresh/255.,  0.05 )));
-	setResult("Brown_fill_lo" ,ncol*ncol+2,floor(255*perturb_thresh( bthresh/255., -0.05 )));
-	setResult("Brown_fill_mid",ncol*ncol+2,floor(255*perturb_thresh( bthresh/255.,  0.00 )));
-	setResult("Brown_fill_hi" ,ncol*ncol+2,floor(255*perturb_thresh( bthresh/255.,  0.05 )));
+	setResult("Grey_fill_lo" , ncol*ncol+2, floor(gthresh*0.975));
+	setResult("Grey_fill_mid", ncol*ncol+2, floor(gthresh*1.000));
+	setResult("Grey_fill_hi" , ncol*ncol+2, floor(gthresh*1.025));
+	setResult("Brown_fill_lo" ,ncol*ncol+2, floor(bthresh*0.975));
+	setResult("Brown_fill_mid",ncol*ncol+2, floor(bthresh*1.000));
+	setResult("Brown_fill_hi" ,ncol*ncol+2, floor(bthresh*1.025));
 
 
 	selectImage(id_red); setSlice(1);
@@ -263,7 +283,6 @@ function quantify_sub_images(){
 	setResult("Brown_fill_hi", ncol*ncol+1,stats[2]*nred*nred);
 
 	
-
 
 	selectImage(cids[1]); 
 	run("Select All"); run("Copy"); close();
@@ -367,9 +386,8 @@ function perform_area_calc( id_c, xsel,ysel, thresh){
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	stats = newArray(3);
 	// create greyscale copy
-	p0 = thresh/255.;
 	for( i=-1; i<2; i++ ){
-		th = 255*perturb_thresh(p0,0.05*i);
+		th = thresh*(1+0.05*i);
 		id_t = threshold_image( id_c, 10, th);
 		makeSelection("freehand",xsel,ysel);
 		getStatistics(area, mean, min, max, std, histogram);
@@ -394,9 +412,11 @@ function threshold_image( idi, thresh_lo, thresh_hi){
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function count_pixels( ){
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -	
-	getStatistics(area, mean, min, max, std, histogram);
-	frac=mean/255.;
-	return(frac*area);
+	//getStatistics(area, mean, min, max, std, histogram);
+	//frac=mean/255.;
+	//return(frac*area);
+	getHistogram(values, counts, 256);
+	return counts[255];
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
